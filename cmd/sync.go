@@ -25,7 +25,11 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/frgrisk/ec2tag/cmd/middleware"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 // syncCmd represents the sync command
@@ -38,21 +42,88 @@ and usage of using your command. For example:
 Cobra is a CLI library for Go that empowers applications.
 This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("sync called")
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return syncTags(cmd)
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(syncCmd)
+}
 
-	// Here you will define your flags and configuration settings.
+func syncTags(cmd *cobra.Command) error {
+	volumes, err := getVolumes(cmd)
+	if err != nil {
+		return err
+	}
+	// TODO: add force flag
+	tags := viper.GetStringSlice("tags")
+	instanceMap, err := getInstances(cmd)
+	if err != nil {
+		return err
+	}
+	for _, v := range volumes {
+		for _, t := range tags {
+			if v.tags[t] == nil {
+				if v.attachment == nil {
+					fmt.Println("Volume", v.volumeID, "is not attached to an instance")
+					continue
+				}
+				tagValue := instanceMap[*v.attachment].tags[t]
+				if tagValue != nil {
+					fmt.Printf("Adding tag %s:%s to volume %s\n", t, *tagValue, v.volumeID)
+					// TODO: do this in bulk
+					err = tagResource(cmd, v.volumeID, t, *tagValue)
+					if err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
 
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// syncCmd.PersistentFlags().String("foo", "", "A help for foo")
+func tagResource(cmd *cobra.Command, resourceID string, tagKey string, tagValue string) error {
+	client := middleware.MustGetEC2Client(cmd.Context())
+	_, err := client.CreateTags(cmd.Context(), &ec2.CreateTagsInput{
+		Resources: []string{resourceID},
+		Tags: []types.Tag{
+			{
+				Key:   &tagKey,
+				Value: &tagValue,
+			},
+		},
+	})
+	return err
+}
 
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// syncCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+type InstanceDetails struct {
+	tags map[string]*string
+}
+
+func getInstances(cmd *cobra.Command) (map[string]InstanceDetails, error) {
+	client := middleware.MustGetEC2Client(cmd.Context())
+	instances, err := client.DescribeInstances(cmd.Context(), &ec2.DescribeInstancesInput{})
+	if err != nil {
+		return nil, err
+	}
+	instanceMap := make(map[string]InstanceDetails)
+	tags := viper.GetStringSlice("tags")
+	for _, r := range instances.Reservations {
+		for _, i := range r.Instances {
+			instanceMap[*i.InstanceId] = InstanceDetails{
+				tags: make(map[string]*string),
+			}
+			for _, t := range tags {
+				instanceMap[*i.InstanceId].tags[t] = nil
+				for _, it := range i.Tags {
+					if *it.Key == t {
+						instanceMap[*i.InstanceId].tags[t] = it.Value
+					}
+				}
+			}
+		}
+	}
+	return instanceMap, nil
 }

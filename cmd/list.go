@@ -25,7 +25,7 @@ package cmd
 import (
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/charmbracelet/glamour"
 	"github.com/frgrisk/ec2tag/cmd/middleware"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -50,31 +50,28 @@ func init() {
 	rootCmd.AddCommand(listCmd)
 }
 
+type volumeDetails struct {
+	volumeID   string
+	attachment *string
+	tags       map[string]*string
+}
+
 // getVolume returns all volumes
-func getVolumes(cmd *cobra.Command) ([]types.Volume, error) {
+func getVolumes(cmd *cobra.Command) ([]volumeDetails, error) {
 	client := middleware.MustGetEC2Client(cmd.Context())
 	volumes, err := client.DescribeVolumes(cmd.Context(), &ec2.DescribeVolumesInput{})
 	if err != nil {
 		return nil, err
 	}
-	return volumes.Volumes, nil
-}
-
-func printVolumesByTag(cmd *cobra.Command) error {
-	volumes, err := getVolumes(cmd)
-	if err != nil {
-		return err
-	}
 	tags := viper.GetStringSlice("tags")
-	type volumeDetails struct {
-		volumeID string
-		tags     map[string]*string
-	}
 	var volumeSummary []volumeDetails
-	for _, v := range volumes {
+	for _, v := range volumes.Volumes {
 		details := volumeDetails{
 			volumeID: *v.VolumeId,
 			tags:     make(map[string]*string),
+		}
+		if len(v.Attachments) > 0 {
+			details.attachment = v.Attachments[0].InstanceId
 		}
 		for _, t := range tags {
 			details.tags[t] = nil
@@ -84,17 +81,46 @@ func printVolumesByTag(cmd *cobra.Command) error {
 				}
 			}
 		}
-		fmt.Print(details.volumeID + "\t")
-		for _, t := range tags {
-			fmt.Print(t + ":")
-			if details.tags[t] == nil {
-				fmt.Print("(undefined)\t")
-			} else {
-				fmt.Print(*details.tags[t] + "\t")
-			}
-		}
-		fmt.Println()
 		volumeSummary = append(volumeSummary, details)
 	}
+	return volumeSummary, nil
+}
+
+func printVolumesByTag(cmd *cobra.Command) error {
+	volumes, err := getVolumes(cmd)
+	if err != nil {
+		return err
+	}
+
+	tags := viper.GetStringSlice("tags")
+	md := "| Volume ID |"
+	for _, t := range tags {
+		md += fmt.Sprintf(" %s |", t)
+	}
+	md += "\n| --- |"
+	for range tags {
+		md += " --- |"
+	}
+	md += "\n"
+	for _, v := range volumes {
+		md += fmt.Sprint("|", v.volumeID, "|")
+		for _, t := range viper.GetStringSlice("tags") {
+			if v.tags[t] == nil {
+				md += "(undefined)|"
+				continue
+			}
+			md += fmt.Sprint(*v.tags[t], "|")
+		}
+		md += "\n"
+	}
+	r, _ := glamour.NewTermRenderer(
+		glamour.WithAutoStyle(),
+		glamour.WithWordWrap(120),
+	)
+	out, err := r.Render(md)
+	if err != nil {
+		return err
+	}
+	fmt.Print(out)
 	return nil
 }
