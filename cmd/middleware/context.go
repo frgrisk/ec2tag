@@ -19,10 +19,13 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
-package main
 
-import "github.com/frgrisk/ec2tag/cmd"
+package middleware
 
-func main() {
-	cmd.Execute()
-}
+type key int
+
+const (
+	_ key = iota
+	// EC2ClientContext is the key to retrieve a Super client from the command context
+	EC2ClientContext
+)
