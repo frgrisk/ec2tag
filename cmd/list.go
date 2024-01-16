@@ -53,6 +53,8 @@ func init() {
 type volumeDetails struct {
 	volumeID   string
 	attachment *string
+	size       int32
+	volumeType string
 	tags       map[string]*string
 }
 
@@ -67,8 +69,10 @@ func getVolumes(cmd *cobra.Command) ([]volumeDetails, error) {
 	var volumeSummary []volumeDetails
 	for _, v := range volumes.Volumes {
 		details := volumeDetails{
-			volumeID: *v.VolumeId,
-			tags:     make(map[string]*string),
+			volumeID:   *v.VolumeId,
+			size:       *v.Size,
+			volumeType: string(v.VolumeType),
+			tags:       make(map[string]*string),
 		}
 		if len(v.Attachments) > 0 {
 			details.attachment = v.Attachments[0].InstanceId
@@ -93,17 +97,21 @@ func printVolumesByTag(cmd *cobra.Command) error {
 	}
 
 	tags := viper.GetStringSlice("tags")
-	md := "| Volume ID |"
+	md := "| Volume ID | Attachment | Type | Size |"
 	for _, t := range tags {
 		md += fmt.Sprintf(" %s |", t)
 	}
-	md += "\n| --- |"
+	md += "\n| --- | --- | --- | ---: |"
 	for range tags {
 		md += " --- |"
 	}
 	md += "\n"
 	for _, v := range volumes {
-		md += fmt.Sprint("|", v.volumeID, "|")
+		attachment := "unattached"
+		if v.attachment != nil {
+			attachment = *v.attachment
+		}
+		md += fmt.Sprint("|", v.volumeID, "|", attachment, "|", v.volumeType, "|", v.size, " GiB |")
 		for _, t := range viper.GetStringSlice("tags") {
 			if v.tags[t] == nil {
 				md += "(undefined)|"
