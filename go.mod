@@ -1,7 +1,8 @@
 module github.com/frgrisk/ec2tag
 
-go 1.21.4
-toolchain go1.24.1
+go 1.23.0
+
+toolchain go1.24.3
 
 require (
 	github.com/aws/aws-sdk-go-v2/config v1.29.4
